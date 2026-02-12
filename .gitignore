@@ -1,0 +1,33 @@
+# Секреты и конфиги
+.env
+*.env
+config.env
+
+# База данных
+data/posts.db
+data/posts.db.backup-*
+data/*.db
+
+# Питоновский мусор
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+venv/
+.venv/
+*.egg-info/
+
+# ML-модели
+models/
+*.bin
+*.pt
+*.onnx
+
+# Временные файлы платформы
+data/refresh.lock
+data/refresh.result
+data/refresh.log
+data/*.pdf
+
+# PyCharm
+.idea/
