@@ -34,3 +34,7 @@ scikit-learn>=1.3
 
 # --- PDF-отчёты ---
 reportlab>=4.0
+
+# --- SQL ---
+psycopg2-binary>=2.9.9
+alembic>=1.13.0

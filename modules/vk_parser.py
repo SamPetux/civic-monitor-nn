@@ -24,6 +24,7 @@ from typing import Optional
 
 import vk_api
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -31,6 +32,12 @@ from vk_api.exceptions import ApiError
 
 from modules.database import Comment, Group, Post, User
 from modules.districts import CITY_GROUPS, LOCAL_GROUPS
+from modules.config import IS_POSTGRES
+
+
+def _upsert(table):
+    """Возвращает правильный INSERT ... ON CONFLICT для текущей БД."""
+    return pg_insert(table) if IS_POSTGRES else sqlite_insert(table)
 
 log = logging.getLogger(__name__)
 
@@ -228,61 +235,63 @@ class VKParser:
     # Сохранение в БД (INSERT ... ON CONFLICT)
     # ------------------------------------------------------------------
     def _save_post(self, group: Group, p: dict) -> int:
-        """Записать пост, вернуть его внутренний id."""
         values = dict(
-            vk_id=p["id"],
+            vk_post_id=p["id"],  # было vk_id
             group_id=group.id,
-            author_vk_id=p.get("from_id") or p.get("owner_id"),
+            from_id=p.get("from_id") or p.get("owner_id"),  # было author_vk_id
+            owner_id=p.get("owner_id"),
             text=p.get("text", "") or "",
             date=datetime.fromtimestamp(p["date"]),
-            likes=(p.get("likes") or {}).get("count", 0),
-            reposts=(p.get("reposts") or {}).get("count", 0),
+            likes_count=(p.get("likes") or {}).get("count", 0),  # было likes
+            reposts_count=(p.get("reposts") or {}).get("count", 0),  # было reposts
             comments_count=(p.get("comments") or {}).get("count", 0),
+            views_count=(p.get("views") or {}).get("count", 0),
             district_id=group.district_id,
+            collected_at=datetime.utcnow(),
         )
-        stmt = sqlite_insert(Post).values(**values)
+        stmt = _upsert(Post).values(**values)
         stmt = stmt.on_conflict_do_update(
-            index_elements=["vk_id", "group_id"],
+            index_elements=["vk_post_id"],  # было ["vk_id", "group_id"]
             set_=dict(
-                likes=stmt.excluded.likes,
-                reposts=stmt.excluded.reposts,
+                likes_count=stmt.excluded.likes_count,  # было likes
+                reposts_count=stmt.excluded.reposts_count,  # было reposts
                 comments_count=stmt.excluded.comments_count,
+                views_count=stmt.excluded.views_count,
             ),
         )
         self.session.execute(stmt)
-        # достаём id обратно — нужен для FK комментариев
         post_id = self.session.scalar(
-            select(Post.id).where(Post.vk_id == p["id"], Post.group_id == group.id)
+            select(Post.id).where(
+                Post.vk_post_id == p["id"],  # было Post.vk_id
+                Post.group_id == group.id,
+            )
         )
         self.stats["posts"] += 1
         return post_id
 
     def _save_comment(
-        self,
-        post_db_id: int,
-        group: Group,
-        c: dict,
-        parent_vk_id: Optional[int],
+            self,
+            post_db_id: int,
+            group: Group,
+            c: dict,
+            parent_vk_id: Optional[int],
     ) -> None:
         text = c.get("text", "") or ""
         if not text.strip():
-            # пустые комментарии (только стикер/фото) для нашей аналитики
-            # бесполезны — пропускаем
             return
         values = dict(
-            vk_id=c["id"],
+            vk_comment_id=c["id"],  # было vk_id
             post_id=post_db_id,
-            author_vk_id=c.get("from_id"),
+            from_id=c.get("from_id"),  # было author_vk_id
             text=text,
             date=datetime.fromtimestamp(c["date"]),
-            likes=(c.get("likes") or {}).get("count", 0),
-            parent_comment_vk_id=parent_vk_id,
-            district_id=group.district_id,  # для local = район группы;
-                                            # для city останется None и
-                                            # дозаполнится этапом геокодинга
+            likes_count=(c.get("likes") or {}).get("count", 0),  # было likes
+            parent_id=parent_vk_id,  # было parent_comment_vk_id
+            district_id=group.district_id,
+            collected_at=datetime.utcnow(),
         )
-        stmt = sqlite_insert(Comment).values(**values).on_conflict_do_nothing(
-            index_elements=["vk_id", "post_id"]
+        stmt = _upsert(Comment).values(**values).on_conflict_do_nothing(
+            index_elements=["vk_comment_id"]  # было ["vk_id", "post_id"]
         )
         self.session.execute(stmt)
         self.stats["comments"] += 1
@@ -385,17 +394,12 @@ class VKParser:
     # Доп: добивка профилей пользователей (батчами по 1000)
     # ------------------------------------------------------------------
     def enrich_users(self, batch_size: int = 1000) -> None:
-        """
-        Подтянуть имена/screen_name авторов комментариев одним батчем.
-        VK users.get принимает до 1000 id за вызов.
-        """
-        # ids, которых ещё нет в users
         missing_ids = self.session.scalars(
-            select(Comment.author_vk_id)
+            select(Comment.from_id)
             .where(
-                Comment.author_vk_id.is_not(None),
-                Comment.author_vk_id > 0,        # отрицательные — это группы
-                Comment.author_vk_id.notin_(select(User.vk_id)),
+                Comment.from_id.is_not(None),
+                Comment.from_id > 0,
+                Comment.from_id.notin_(select(User.vk_user_id)),  # было User.vk_id
             )
             .distinct()
         ).all()
@@ -415,12 +419,12 @@ class VKParser:
                 continue
             for u in response:
                 self.session.execute(
-                    sqlite_insert(User).values(
-                        vk_id=u["id"],
+                    _upsert(User).values(
+                        vk_user_id=u["id"],  # было vk_id
                         first_name=u.get("first_name"),
                         last_name=u.get("last_name"),
                         screen_name=u.get("screen_name"),
                         is_closed=u.get("is_closed"),
-                    ).on_conflict_do_nothing(index_elements=["vk_id"])
+                    ).on_conflict_do_nothing(index_elements=["vk_user_id"])  # было "vk_id"
                 )
             self.session.commit()

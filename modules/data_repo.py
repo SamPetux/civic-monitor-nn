@@ -12,6 +12,15 @@
   • Все функции принимают datetime с точностью до часа/минуты —
     фильтр "последние N часов" работает без изменений в схеме.
 """
+
+# Маппинг полей БД → модель SQLAlchemy:
+# comments.from_id          ← (было author_vk_id в старой схеме)
+# comments.vk_comment_id    ← (было vk_id)
+# comments.parent_id        ← (было parent_comment_vk_id)
+# users.vk_user_id          ← (было vk_id)
+# posts.vk_post_id          ← (было vk_id)
+
+
 from __future__ import annotations
 
 import math
@@ -25,6 +34,8 @@ from modules.database import (
     Burst, Comment, Group, Post, Topic, User, get_session,
 )
 from modules.districts import DISTRICT_BY_ID, DISTRICTS
+
+from modules.config import IS_POSTGRES
 
 
 # ----------------------------------------------------------------------
@@ -315,16 +326,16 @@ def get_recent_comments(
     with get_session() as s:
         rows = s.execute(
             select(
-                Comment.author_vk_id,
-                Comment.vk_id, Comment.text, Comment.sentiment,
+                Comment.from_id,
+                Comment.vk_comment_id, Comment.text, Comment.sentiment,
                 Comment.sentiment_score, Comment.date, Comment.district_id,
                 User.first_name, User.last_name,
                 Group.name, Group.screen_name, Group.vk_id.label("group_vk_id"),
-                Post.vk_id.label("post_vk_id"),
+                Post.vk_post_id.label("post_vk_id"),
             )
             .join(Post, Post.id == Comment.post_id)
             .join(Group, Group.id == Post.group_id)
-            .join(User, User.vk_id == Comment.author_vk_id, isouter=True)
+            .join(User, User.vk_user_id == Comment.from_id, isouter=True)
             .where(*conds)
             .order_by(Comment.date.desc())
             .limit(limit * 2)
@@ -332,7 +343,7 @@ def get_recent_comments(
 
     out: list[CommentRow] = []
     for r in rows:
-        uid = r.author_vk_id
+        uid = r.from_id
         if uid in excluded_user_ids:
             continue
         author = f"{r.first_name or ''} {r.last_name or ''}".strip()
@@ -350,7 +361,7 @@ def get_recent_comments(
             score=float(r.sentiment_score or 0),
             created_at=r.date,
             district_id=r.district_id,
-            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_id),
+            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_comment_id),
         ))
         if len(out) >= limit:
             break
@@ -368,10 +379,15 @@ def get_sentiment_timeseries(
 ) -> list[dict]:
     """[{date, negative, neutral, positive}] по бакетам."""
     if bucket == "hour":
-        # SQLite: группируем по час-уровню через strftime
-        date_p = func.strftime("%Y-%m-%d %H:00", Post.date)
-        date_c = func.strftime("%Y-%m-%d %H:00", Comment.date)
+        if IS_POSTGRES:
+            # PostgreSQL: date_trunc возвращает timestamp с обнулёнными мин/сек
+            date_p = func.date_trunc("hour", Post.date)
+            date_c = func.date_trunc("hour", Comment.date)
+        else:
+            date_p = func.strftime("%Y-%m-%d %H:00", Post.date)
+            date_c = func.strftime("%Y-%m-%d %H:00", Comment.date)
     else:
+        # func.date работает и в PG, и в SQLite
         date_p = func.date(Post.date)
         date_c = func.date(Comment.date)
 
@@ -434,7 +450,7 @@ def get_top_topics(
             )
             .join(Topic, Topic.id == Comment.topic_id)
             .where(*conds)
-            .group_by(Comment.topic_id)
+            .group_by(Comment.topic_id, Topic.label, Topic.keywords)  # ← добавили label и keywords
             .order_by(func.count().desc())
             .limit(limit)
         ).all()
@@ -507,21 +523,21 @@ def get_top_users(
     pos_case = case((Comment.sentiment == "positive", 1), else_=0)
     neg_case = case((Comment.sentiment == "negative", 1), else_=0)
 
-    conds = [Comment.author_vk_id.is_not(None), Comment.author_vk_id > 0]
+    conds = [Comment.from_id.is_not(None), Comment.from_id > 0]
     conds += _period_filter(Comment.date, start_dt, end_dt)
 
     with get_session() as s:
         rows = s.execute(
             select(
-                Comment.author_vk_id,
+                Comment.from_id,
                 func.count().label("n"),
                 func.sum(pos_case).label("pos"),
                 func.sum(neg_case).label("neg"),
                 User.first_name, User.last_name, User.screen_name,
             )
-            .join(User, User.vk_id == Comment.author_vk_id, isouter=True)
+            .join(User, User.vk_user_id == Comment.from_id, isouter=True)
             .where(*conds)
-            .group_by(Comment.author_vk_id)
+            .group_by(Comment.from_id, User.first_name, User.last_name, User.screen_name)
             .order_by(func.count().desc())
             .limit(limit)
         ).all()
@@ -530,9 +546,9 @@ def get_top_users(
         if rows:
             user_ids = [r[0] for r in rows]
             d_rows = s.execute(
-                select(Comment.author_vk_id, Comment.district_id)
+                select(Comment.from_id, Comment.district_id)
                 .where(
-                    Comment.author_vk_id.in_(user_ids),
+                    Comment.from_id.in_(user_ids),
                     Comment.district_id.is_not(None),
                     *_period_filter(Comment.date, start_dt, end_dt),
                 )
