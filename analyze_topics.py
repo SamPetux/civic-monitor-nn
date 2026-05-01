@@ -29,7 +29,7 @@ from sqlalchemy import delete, select, update
 from tqdm import tqdm
 
 from modules.database import (
-    Comment, Post, Topic, get_session, init_db,
+    Burst, Comment, Post, Topic, get_session, init_db,
 )
 from modules.text_cleaner import clean_for_sentiment
 
@@ -96,7 +96,8 @@ def write_back(session, modeler, corpus, topics: list[int]) -> dict:
     # info: DataFrame с колонками Topic, Count, Name, Representation, ...
     counts = {int(row.Topic): int(row.Count) for _, row in info.iterrows()}
 
-    # очищаем старые темы
+    # очищаем старые темы (сначала bursts — они ссылаются на topics через FK)
+    session.execute(delete(Burst))
     session.execute(delete(Topic))
     session.commit()
 
@@ -183,9 +184,11 @@ def main() -> int:
         if args.reset:
             n_p = session.execute(update(Post).values(topic_id=None)).rowcount
             n_c = session.execute(update(Comment).values(topic_id=None)).rowcount
+            # bursts ссылаются на topics через FK — удаляем сначала их
+            session.execute(delete(Burst))
             session.execute(delete(Topic))
             session.commit()
-            logging.info("Сброшено: posts=%d, comments=%d, topics очищены",
+            logging.info("Сброшено: posts=%d, comments=%d, topics и bursts очищены",
                          n_p, n_c)
 
         logging.info("Собираю корпус...")

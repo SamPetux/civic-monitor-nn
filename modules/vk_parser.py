@@ -235,15 +235,25 @@ class VKParser:
     # Сохранение в БД (INSERT ... ON CONFLICT)
     # ------------------------------------------------------------------
     def _save_post(self, group: Group, p: dict) -> int:
+        """
+        Записать пост, вернуть его внутренний id.
+
+        Конфликт разрешается по составному ключу (group_id, vk_post_id):
+        vk_post_id уникален только в рамках одной группы. На существующей
+        записи освежаем волатильные счётчики (likes/reposts/comments/views).
+
+        RETURNING posts.id даёт нам id вставленной/обновлённой строки одним
+        round-trip-ом — отдельный SELECT после апсерта не нужен.
+        """
         values = dict(
-            vk_post_id=p["id"],  # было vk_id
+            vk_post_id=p["id"],
             group_id=group.id,
-            from_id=p.get("from_id") or p.get("owner_id"),  # было author_vk_id
+            from_id=p.get("from_id") or p.get("owner_id"),
             owner_id=p.get("owner_id"),
             text=p.get("text", "") or "",
             date=datetime.fromtimestamp(p["date"]),
-            likes_count=(p.get("likes") or {}).get("count", 0),  # было likes
-            reposts_count=(p.get("reposts") or {}).get("count", 0),  # было reposts
+            likes_count=(p.get("likes") or {}).get("count", 0),
+            reposts_count=(p.get("reposts") or {}).get("count", 0),
             comments_count=(p.get("comments") or {}).get("count", 0),
             views_count=(p.get("views") or {}).get("count", 0),
             district_id=group.district_id,
@@ -251,21 +261,16 @@ class VKParser:
         )
         stmt = _upsert(Post).values(**values)
         stmt = stmt.on_conflict_do_update(
-            index_elements=["vk_post_id"],  # было ["vk_id", "group_id"]
+            index_elements=["group_id", "vk_post_id"],
             set_=dict(
-                likes_count=stmt.excluded.likes_count,  # было likes
-                reposts_count=stmt.excluded.reposts_count,  # было reposts
+                likes_count=stmt.excluded.likes_count,
+                reposts_count=stmt.excluded.reposts_count,
                 comments_count=stmt.excluded.comments_count,
                 views_count=stmt.excluded.views_count,
             ),
-        )
-        self.session.execute(stmt)
-        post_id = self.session.scalar(
-            select(Post.id).where(
-                Post.vk_post_id == p["id"],  # было Post.vk_id
-                Post.group_id == group.id,
-            )
-        )
+        ).returning(Post.id)
+
+        post_id = self.session.execute(stmt).scalar_one()
         self.stats["posts"] += 1
         return post_id
 
@@ -276,22 +281,28 @@ class VKParser:
             c: dict,
             parent_vk_id: Optional[int],
     ) -> None:
+        """
+        Записать комментарий. Конфликт по (post_id, vk_comment_id):
+        vk_comment_id уникален только в рамках своего поста.
+        DO NOTHING — для комментариев нам не нужно освежать счётчики
+        (они малоосмысленны и редко меняются в массе).
+        """
         text = c.get("text", "") or ""
         if not text.strip():
             return
         values = dict(
-            vk_comment_id=c["id"],  # было vk_id
+            vk_comment_id=c["id"],
             post_id=post_db_id,
-            from_id=c.get("from_id"),  # было author_vk_id
+            from_id=c.get("from_id"),
             text=text,
             date=datetime.fromtimestamp(c["date"]),
-            likes_count=(c.get("likes") or {}).get("count", 0),  # было likes
-            parent_id=parent_vk_id,  # было parent_comment_vk_id
+            likes_count=(c.get("likes") or {}).get("count", 0),
+            parent_id=parent_vk_id,
             district_id=group.district_id,
             collected_at=datetime.utcnow(),
         )
         stmt = _upsert(Comment).values(**values).on_conflict_do_nothing(
-            index_elements=["vk_comment_id"]  # было ["vk_id", "post_id"]
+            index_elements=["post_id", "vk_comment_id"]
         )
         self.session.execute(stmt)
         self.stats["comments"] += 1
@@ -399,7 +410,7 @@ class VKParser:
             .where(
                 Comment.from_id.is_not(None),
                 Comment.from_id > 0,
-                Comment.from_id.notin_(select(User.vk_user_id)),  # было User.vk_id
+                Comment.from_id.notin_(select(User.vk_user_id)),
             )
             .distinct()
         ).all()
@@ -420,11 +431,11 @@ class VKParser:
             for u in response:
                 self.session.execute(
                     _upsert(User).values(
-                        vk_user_id=u["id"],  # было vk_id
+                        vk_user_id=u["id"],
                         first_name=u.get("first_name"),
                         last_name=u.get("last_name"),
                         screen_name=u.get("screen_name"),
                         is_closed=u.get("is_closed"),
-                    ).on_conflict_do_nothing(index_elements=["vk_user_id"])  # было "vk_id"
+                    ).on_conflict_do_nothing(index_elements=["vk_user_id"])
                 )
             self.session.commit()

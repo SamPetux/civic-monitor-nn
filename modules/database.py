@@ -64,11 +64,22 @@ class Group(Base):
 
 # ----------------------------------------------------------------------
 class Post(Base):
+    """
+    Пост со стены группы.
+
+    UNIQUE — composite (group_id, vk_post_id): vk_post_id уникален только
+    в рамках одной группы, между разными сообществами он легко совпадает.
+    Этот же ключ используется в _save_post → ON CONFLICT.
+    """
     __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("group_id", "vk_post_id", name="uq_posts_group_vk_post"),
+    )
 
     id:               Mapped[int]           = mapped_column(primary_key=True)
     group_id:         Mapped[int]           = mapped_column(ForeignKey("groups.id"), index=True)
-    vk_post_id:       Mapped[int]           = mapped_column(BigInteger, unique=True)
+    # БЕЗ unique=True — уникальность задаётся composite-ключом выше.
+    vk_post_id:       Mapped[int]           = mapped_column(BigInteger, index=True)
     owner_id:         Mapped[Optional[int]] = mapped_column(BigInteger)
     from_id:          Mapped[Optional[int]] = mapped_column(BigInteger)
     date:             Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
@@ -95,11 +106,21 @@ class Post(Base):
 
 # ----------------------------------------------------------------------
 class Comment(Base):
+    """
+    Комментарий к посту.
+
+    UNIQUE — composite (post_id, vk_comment_id) по той же логике, что
+    и у Post: id комментария уникален только в пределах своего поста.
+    """
     __tablename__ = "comments"
+    __table_args__ = (
+        UniqueConstraint("post_id", "vk_comment_id", name="uq_comments_post_vk_comment"),
+    )
 
     id:               Mapped[int]           = mapped_column(primary_key=True)
     post_id:          Mapped[int]           = mapped_column(ForeignKey("posts.id"), index=True)
-    vk_comment_id:    Mapped[int]           = mapped_column(BigInteger, unique=True)
+    # БЕЗ unique=True — уникальность задаётся composite-ключом выше.
+    vk_comment_id:    Mapped[int]           = mapped_column(BigInteger, index=True)
     from_id:          Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
     date:             Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
     text:             Mapped[Optional[str]] = mapped_column(Text)
