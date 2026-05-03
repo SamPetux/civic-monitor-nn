@@ -1,0 +1,29 @@
+# ============================================================
+# Переопределения для локальной разработки.
+# Этот файл docker compose подхватывает автоматически
+# при запуске на той же машине, где лежит код.
+#
+# Отличия от продакшна:
+#   - Монтируем исходники как volume → hot reload без пересборки
+#   - TRANSFORMERS_OFFLINE=1 → модели из локального кэша
+#   - Streamlit в режиме разработки (runOnSave=true)
+# ============================================================
+
+services:
+  app:
+    volumes:
+      # Исходники монтируем поверх образа — изменения видны мгновенно
+      - .:/app
+      # Кэш моделей (переопределяем чтобы не потерять при --build)
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
+    environment:
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE:  "1"
+      # Streamlit: перезапускать при изменении файлов
+      STREAMLIT_SERVER_RUN_ON_SAVE: "true"
+    command: >
+      streamlit run app.py
+      --server.address=0.0.0.0
+      --server.port=8501
+      --server.runOnSave=true

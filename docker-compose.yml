@@ -1,0 +1,87 @@
+# ============================================================
+# Civic Monitor НН — Docker Compose
+# Сервисы: db (PostgreSQL 15) + app (Streamlit)
+# ============================================================
+#
+# Запуск:
+#   docker compose up -d
+#
+# Первый запуск (создать БД и прогнать парсер):
+#   docker compose exec app python parse.py --days 30
+#   docker compose exec app python analyze_topics.py --reset
+#   docker compose exec app python detect_bursts.py --reset
+#
+# Логи:
+#   docker compose logs -f app
+#   docker compose logs -f db
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL 15
+  # ----------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: civic_monitor_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-civic_monitor}
+      POSTGRES_USER:     ${POSTGRES_USER:-civic_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localpass123}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"          # открыт для локального psql/pgAdmin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-civic_user} -d ${POSTGRES_DB:-civic_monitor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Streamlit-приложение + все скрипты
+  # ----------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: civic_monitor_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy  # ждём пока postgres поднимется
+    environment:
+      # БД — подключаемся к сервису db внутри docker-сети
+      POSTGRES_HOST:     db
+      POSTGRES_PORT:     5432
+      POSTGRES_DB:       ${POSTGRES_DB:-civic_monitor}
+      POSTGRES_USER:     ${POSTGRES_USER:-civic_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localpass123}
+      # VK токен из .env
+      VK_TOKEN:          ${VK_TOKEN}
+      # Офлайн-режим HuggingFace (модели берём из кэша)
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+      HF_DATASETS_OFFLINE:  ${HF_DATASETS_OFFLINE:-0}
+    volumes:
+      - hf_cache:/app/.cache/huggingface   # кэш ML-моделей
+      - app_data:/app/data                  # lock-файлы refresh-runner
+    ports:
+      - "8501:8501"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+# ----------------------------------------------------------
+# Именованные тома (данные переживают пересборку контейнеров)
+# ----------------------------------------------------------
+volumes:
+  pg_data:
+    driver: local
+  hf_cache:
+    driver: local
+  app_data:
+    driver: local
