@@ -30,7 +30,26 @@ from umap import UMAP
 
 log = logging.getLogger(__name__)
 
-LIGHT_EMB_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+def _resolve_model_path(model_name: str) -> str:
+    """
+    Если модель лежит в HuggingFace hub-кэше (Docker/офлайн) —
+    возвращаем полный путь к snapshot. Иначе возвращаем имя модели
+    как есть (обычный локальный запуск с доступом в интернет).
+    """
+    import os
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = os.path.join(hf_home, "hub")
+    folder_name = "models--" + model_name.replace("/", "--")
+    snapshots_dir = os.path.join(hub_dir, folder_name, "snapshots")
+    if os.path.isdir(snapshots_dir):
+        snapshots = sorted(os.listdir(snapshots_dir))
+        if snapshots:
+            full_path = os.path.join(snapshots_dir, snapshots[-1])
+            log.info("Модель найдена в кэше: %s", full_path)
+            return full_path
+    return model_name
+
+LIGHT_EMB_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 HEAVY_EMB_MODEL = "ai-forever/sbert_large_nlu_ru"
 
 # Русские стоп-слова. Не тащим зависимость от nltk ради одного списка —
@@ -142,7 +161,7 @@ class TopicModeler:
     def _build(self) -> BERTopic:
         """Собрать настроенный экземпляр BERTopic."""
         log.info("Загружаю эмбеддинг-модель '%s'", self.embedding_model_name)
-        embedder = SentenceTransformer(self.embedding_model_name)
+        embedder = SentenceTransformer(_resolve_model_path(self.embedding_model_name))
 
         # UMAP — снижение размерности перед кластеризацией.
         # n_neighbors=15, n_components=5 — стандарт для коротких текстов.
