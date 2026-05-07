@@ -61,8 +61,8 @@ services:
       # VK токен из .env
       VK_TOKEN:          ${VK_TOKEN}
       # Офлайн-режим HuggingFace (модели берём из кэша)
-      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
-      HF_DATASETS_OFFLINE:  ${HF_DATASETS_OFFLINE:-0}
+      TRANSFORMERS_OFFLINE: "1" # ${TRANSFORMERS_OFFLINE:-0}
+      HF_DATASETS_OFFLINE:  "1" # ${HF_DATASETS_OFFLINE:-0}
     volumes:
       - hf_cache:/app/.cache/huggingface   # кэш ML-моделей
       - app_data:/app/data                  # lock-файлы refresh-runner

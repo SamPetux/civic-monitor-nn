@@ -30,6 +30,15 @@ RUN pip install --no-cache-dir --upgrade pip \
 # --- Код приложения ---
 COPY . .
 
+# --- Предзагрузка ML-моделей при сборке ---
+RUN python -c "\
+from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2'); \
+from transformers import AutoTokenizer, AutoModelForSequenceClassification; \
+AutoTokenizer.from_pretrained('cointegrated/rubert-tiny2'); \
+AutoModelForSequenceClassification.from_pretrained('cointegrated/rubert-tiny2'); \
+print('Models downloaded successfully')"
+
 # --- Директории для данных ---
 RUN mkdir -p /app/data
 

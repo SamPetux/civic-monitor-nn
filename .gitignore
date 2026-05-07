@@ -31,3 +31,7 @@ data/*.pdf
 
 # PyCharm
 .idea/
+
+# civic_monitor_dump.sql в git не нужен — это дамп БД
+echo "civic_monitor_dump.sql" >> .gitignore
+echo "0" >> .gitignore
