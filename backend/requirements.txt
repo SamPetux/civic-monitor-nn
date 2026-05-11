@@ -1,0 +1,18 @@
+# Web
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# БД
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+
+# PDF-отчёты (modules/pdf_report.py)
+reportlab>=4.0
+
+# Данные (modules/data_repo.py использует pandas опционально)
+pandas>=2.0
+
+# Geo (districts.py)
+# shapely нужна только если data_repo импортирует geopandas — у нас нет

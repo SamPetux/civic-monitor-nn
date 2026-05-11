@@ -35,3 +35,7 @@ data/*.pdf
 # civic_monitor_dump.sql в git не нужен — это дамп БД
 echo "civic_monitor_dump.sql" >> .gitignore
 echo "0" >> .gitignore
+
+# Node.js
+frontend/node_modules/
+frontend/.next/

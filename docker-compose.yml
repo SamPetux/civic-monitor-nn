@@ -1,25 +1,26 @@
 # ============================================================
 # Civic Monitor НН — Docker Compose
-# Сервисы: db (PostgreSQL 15) + app (Streamlit)
+# Сервисы: db (PostgreSQL 15) + api (FastAPI) + frontend (Next.js)
 # ============================================================
 #
 # Запуск:
 #   docker compose up -d
 #
 # Первый запуск (создать БД и прогнать парсер):
-#   docker compose exec app python parse.py --days 30
-#   docker compose exec app python analyze_topics.py --reset
-#   docker compose exec app python detect_bursts.py --reset
+#   docker compose exec api python parse.py --days 30
+#   docker compose exec api python analyze_topics.py --reset
+#   docker compose exec api python detect_bursts.py --reset
 #
 # Логи:
-#   docker compose logs -f app
+#   docker compose logs -f api
+#   docker compose logs -f frontend
 #   docker compose logs -f db
 # ============================================================
 
 services:
 
   # ----------------------------------------------------------
-  # PostgreSQL 15
+  # PostgreSQL 15 — без изменений
   # ----------------------------------------------------------
   db:
     image: postgres:15-alpine
@@ -32,7 +33,7 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"          # открыт для локального psql/pgAdmin
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-civic_user} -d ${POSTGRES_DB:-civic_monitor}"]
       interval: 10s
@@ -40,43 +41,86 @@ services:
       retries: 5
 
   # ----------------------------------------------------------
-  # Streamlit-приложение + все скрипты
+  # FastAPI — REST API поверх data_repo.py
   # ----------------------------------------------------------
-  app:
+  api:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: civic_monitor_app
+      dockerfile: backend/Dockerfile
+    container_name: civic_monitor_api
     restart: unless-stopped
     depends_on:
       db:
-        condition: service_healthy  # ждём пока postgres поднимется
+        condition: service_healthy
     environment:
-      # БД — подключаемся к сервису db внутри docker-сети
-      POSTGRES_HOST:     db
-      POSTGRES_PORT:     5432
-      POSTGRES_DB:       ${POSTGRES_DB:-civic_monitor}
-      POSTGRES_USER:     ${POSTGRES_USER:-civic_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localpass123}
-      # VK токен из .env
+      DATABASE_URL:      postgresql+psycopg2://${POSTGRES_USER:-civic_user}:${POSTGRES_PASSWORD:-localpass123}@db:5432/${POSTGRES_DB:-civic_monitor}
       VK_TOKEN:          ${VK_TOKEN}
-      # Офлайн-режим HuggingFace (модели берём из кэша)
-      TRANSFORMERS_OFFLINE: "1" # ${TRANSFORMERS_OFFLINE:-0}
-      HF_DATASETS_OFFLINE:  "1" # ${HF_DATASETS_OFFLINE:-0}
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE:  "1"
+      CIVIC_CORS_ORIGINS: "http://localhost:3000,http://frontend:3000"
+      CIVIC_REPO_ROOT:   /app
     volumes:
-      - hf_cache:/app/.cache/huggingface   # кэш ML-моделей
-      - app_data:/app/data                  # lock-файлы refresh-runner
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
     ports:
-      - "8501:8501"
+      - "8000:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      start_period: 60s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
       retries: 3
 
+  # ----------------------------------------------------------
+  # Next.js фронтенд — добавляется в Блоке 4
+  # ----------------------------------------------------------
+  frontend:
+    profiles: [frontend]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: civic_monitor_frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Внутри Docker фронт обращается к api по имени сервиса
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      # SSR-запросы (server-side) идут напрямую к сервису api
+      API_INTERNAL_URL:    http://api:8000
+    ports:
+      - "3000:3000"
+
+  # ----------------------------------------------------------
+  # Streamlit (старый UI) — закомментирован, не удалён
+  # ----------------------------------------------------------
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: civic_monitor_app
+  #   restart: unless-stopped
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   environment:
+  #     POSTGRES_HOST:     db
+  #     POSTGRES_PORT:     5432
+  #     POSTGRES_DB:       ${POSTGRES_DB:-civic_monitor}
+  #     POSTGRES_USER:     ${POSTGRES_USER:-civic_user}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localpass123}
+  #     VK_TOKEN:          ${VK_TOKEN}
+  #     TRANSFORMERS_OFFLINE: "1"
+  #     HF_DATASETS_OFFLINE:  "1"
+  #   volumes:
+  #     - hf_cache:/app/.cache/huggingface
+  #     - app_data:/app/data
+  #   ports:
+  #     - "8501:8501"
+
 # ----------------------------------------------------------
-# Именованные тома (данные переживают пересборку контейнеров)
+# Тома — без изменений
 # ----------------------------------------------------------
 volumes:
   pg_data:
