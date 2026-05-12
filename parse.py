@@ -10,7 +10,7 @@
     python parse.py --district sormovsky
 
     # Иначе временной охват и лимит постов:
-    python parse.py --days 14 --max-posts 200
+    python parse.py --days 2 --max-posts 200
 
     # Без общегородских (быстрее):
     python parse.py --no-city

@@ -29,16 +29,23 @@ from datetime import date, datetime
 from typing import Iterable
 
 from sqlalchemy import case, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from tqdm import tqdm
 
 from modules.burst_detector import (
     BurstCandidate, detect_bursts_in_series, fill_daily_gaps,
 )
+from modules.config import IS_POSTGRES
 from modules.database import (
     Burst, Comment, Post, Topic, get_session, init_db,
 )
 from modules.districts import DISTRICT_BY_ID
+
+
+def _upsert(table):
+    """Правильный диалект INSERT ... ON CONFLICT для текущей БД."""
+    return pg_insert(table) if IS_POSTGRES else sqlite_insert(table)
 
 
 def setup_logging(verbose: bool) -> None:
@@ -50,17 +57,24 @@ def setup_logging(verbose: bool) -> None:
 
 
 def _date_range(session) -> tuple[date, date] | None:
-    """Минимум/максимум по датам сообщений в БД."""
-    row = session.execute(select(
-        func.min(Post.date), func.max(Post.date),
-        func.min(Comment.date), func.max(Comment.date),
-    )).one()
-    candidates = [d for d in row if d is not None]
+    """
+    Минимум/максимум по датам сообщений в БД.
+
+    Два отдельных запроса вместо одного с декартовым произведением:
+    SELECT min/max на несвязанных таблицах в одном FROM порождает
+    SAWarning (cartesian product) и неверный результат на Postgres.
+    """
+    post_row = session.execute(
+        select(func.min(Post.date), func.max(Post.date))
+    ).one()
+    comment_row = session.execute(
+        select(func.min(Comment.date), func.max(Comment.date))
+    ).one()
+
+    candidates = [d for d in (*post_row, *comment_row) if d is not None]
     if not candidates:
         return None
-    start = min(candidates).date()
-    end = max(candidates).date()
-    return start, end
+    return min(candidates).date(), max(candidates).date()
 
 
 def _collect_series(
@@ -73,8 +87,6 @@ def _collect_series(
     Каждый день представлен один раз; нулевые дни добавляются
     fill_daily_gaps в самом конце, по запросу.
     """
-    # ----- посты + комментарии вместе -----
-    # SQLite UNION ALL быстрее, чем тащить два запроса в Python и сшивать.
     neg_case_p = case((Post.sentiment == "negative", 1), else_=0)
     neg_case_c = case((Comment.sentiment == "negative", 1), else_=0)
 
@@ -113,20 +125,16 @@ def _collect_series(
         bucket[(tid, did, d_obj)][0] += int(vol or 0)
         bucket[(tid, did, d_obj)][1] += int(neg or 0)
 
-    # Заодно собираем агрегацию "по теме без района" (district=None) —
-    # для всплесков уровня всего города. И ряды по (topic, district).
     raw_series: dict[tuple[int, str | None], dict[date, list[int]]] = defaultdict(
         lambda: defaultdict(lambda: [0, 0])
     )
     for (tid, did, d), (vol, neg) in bucket.items():
-        # ряд по конкретному (topic, district) — если did задан
         raw_series[(tid, did)][d][0] += vol
         raw_series[(tid, did)][d][1] += neg
-        # ряд по теме целиком: складываем все районы (включая None)
+        # агрегация без района — всплески уровня всего города
         raw_series[(tid, None)][d][0] += vol
         raw_series[(tid, None)][d][1] += neg
 
-    # сортируем и заполняем дыры нулевыми днями
     out: dict[tuple[int, str | None], list[tuple[date, int, float | None]]] = {}
     for key, by_day in raw_series.items():
         rows = []
@@ -143,18 +151,18 @@ def _save_bursts(session, bursts: Iterable[BurstCandidate]) -> int:
     if not rows:
         return 0
     payload = [{
-        "topic_id":      b.topic_id,
-        "district_id":   b.district_id,
-        "date":          datetime.combine(b.day, datetime.min.time()),
-        "volume":        b.volume,
-        "baseline_mean": b.baseline_mean,
-        "baseline_std":  b.baseline_std,
-        "z_score":       b.z_score,
-        "intensity":     b.intensity,
-        "neg_share":     b.neg_share,
+        "topic_id":         b.topic_id,
+        "district_id":      b.district_id,
+        "date":             datetime.combine(b.day, datetime.min.time()),
+        "volume":           int(b.volume),
+        "baseline_mean":    float(b.baseline_mean),
+        "baseline_std":     float(b.baseline_std),
+        "z_score":          float(b.z_score),
+        "intensity":        b.intensity,
+        "neg_share":        float(b.neg_share) if b.neg_share is not None else None,
     } for b in rows]
 
-    stmt = sqlite_insert(Burst).values(payload)
+    stmt = _upsert(Burst).values(payload)
     stmt = stmt.on_conflict_do_update(
         index_elements=["topic_id", "district_id", "date"],
         set_={
@@ -252,7 +260,6 @@ def main() -> int:
         n_saved = _save_bursts(session, all_bursts)
         print(f"\nНайдено всплесков: {n_saved}")
 
-        # сводка по интенсивности
         rows = session.execute(
             select(Burst.intensity, func.count())
             .group_by(Burst.intensity)

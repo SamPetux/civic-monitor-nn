@@ -63,6 +63,7 @@ class Group(Base):
 
 # ----------------------------------------------------------------------
 class Post(Base):
+<<<<<<< Updated upstream
     """Пост со стены группы."""
     __tablename__ = "posts"
     __table_args__ = (
@@ -83,6 +84,40 @@ class Post(Base):
     district_id:   Mapped[Optional[str]]  = mapped_column(String(50), index=True)
     # Уверенность геокодера, если район присвоен по тексту (0..1).
     # Для постов из локальных групп остаётся None (район унаследован, не вычислен).
+=======
+    """
+    Пост со стены группы.
+
+    UNIQUE — composite (group_id, vk_post_id): vk_post_id уникален только
+    в рамках одной группы, между разными сообществами он легко совпадает.
+    Этот же ключ используется в _save_post → ON CONFLICT.
+    """
+    __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("group_id", "vk_post_id", name="uq_posts_group_vk_post"),
+    )
+
+    id:               Mapped[int]           = mapped_column(primary_key=True)
+    group_id:         Mapped[int]           = mapped_column(ForeignKey("groups.id"), index=True)
+    # БЕЗ unique=True — уникальность задаётся composite-ключом выше.
+    vk_post_id:       Mapped[int]           = mapped_column(BigInteger, index=True)
+    owner_id:         Mapped[Optional[int]] = mapped_column(BigInteger)
+    from_id:          Mapped[Optional[int]] = mapped_column(BigInteger)
+    date:             Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
+    text:             Mapped[Optional[str]] = mapped_column(Text)
+    likes_count:      Mapped[Optional[int]] = mapped_column(Integer)
+    reposts_count:    Mapped[Optional[int]] = mapped_column(Integer)
+    comments_count:   Mapped[Optional[int]] = mapped_column(Integer)
+    views_count:      Mapped[Optional[int]] = mapped_column(Integer)
+    is_pinned:        Mapped[bool]          = mapped_column(Boolean, default=False)
+    collected_at:     Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # аналитика
+    sentiment:          Mapped[Optional[str]]   = mapped_column(String(20))
+    sentiment_score:    Mapped[Optional[float]] = mapped_column(Float)
+    topic_id:           Mapped[Optional[int]]   = mapped_column(Integer)
+    district_id:        Mapped[Optional[str]]   = mapped_column(String(50), index=True)
+>>>>>>> Stashed changes
     district_confidence: Mapped[Optional[float]] = mapped_column(Float)
 
     # Поля под sentiment / topic — заполняются отдельными этапами.
@@ -97,6 +132,7 @@ class Post(Base):
 
 # ----------------------------------------------------------------------
 class Comment(Base):
+<<<<<<< Updated upstream
     """Комментарий к посту."""
     __tablename__ = "comments"
     __table_args__ = (
@@ -111,6 +147,30 @@ class Comment(Base):
     date:          Mapped[datetime]       = mapped_column(DateTime, index=True)
     likes:         Mapped[int]            = mapped_column(Integer, default=0)
     parent_comment_vk_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+=======
+    """
+    Комментарий к посту.
+
+    UNIQUE — composite (post_id, vk_comment_id) по той же логике, что
+    и у Post: id комментария уникален только в пределах своего поста.
+    """
+    __tablename__ = "comments"
+    __table_args__ = (
+        UniqueConstraint("post_id", "vk_comment_id", name="uq_comments_post_vk_comment"),
+    )
+
+    id:               Mapped[int]           = mapped_column(primary_key=True)
+    post_id:          Mapped[int]           = mapped_column(ForeignKey("posts.id"), index=True)
+    # БЕЗ unique=True — уникальность задаётся composite-ключом выше.
+    vk_comment_id:    Mapped[int]           = mapped_column(BigInteger, index=True)
+    from_id:          Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
+    date:             Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
+    text:             Mapped[Optional[str]] = mapped_column(Text)
+    likes_count:      Mapped[Optional[int]] = mapped_column(Integer)
+    replies_count:    Mapped[Optional[int]] = mapped_column(Integer)
+    parent_id:        Mapped[Optional[int]] = mapped_column(BigInteger)
+    collected_at:     Mapped[Optional[datetime]] = mapped_column(DateTime)
+>>>>>>> Stashed changes
 
     # Поля заведены заранее под следующие блоки:
     sentiment:       Mapped[Optional[str]]   = mapped_column(String(20), index=True)
