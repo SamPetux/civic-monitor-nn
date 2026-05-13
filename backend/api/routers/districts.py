@@ -23,7 +23,17 @@ def district_metrics(period: Period = Depends(get_period)):
     rows = data_repo.get_district_metrics(
         start_dt=period.start_dt, end_dt=period.end_dt,
     )
-    return [DistrictMetricsOut(**r.__dict__) for r in rows]
+    return [
+        DistrictMetricsOut(
+            **{k: v for k, v in r.__dict__.items() if not k.startswith('_')},
+            delta_activity=round(
+                (r.total_posts - r.prev_total_posts) / r.prev_total_posts
+                if r.prev_total_posts else 0.0, 3
+            ),
+            delta_neg_share=round(r.neg_share - r.prev_neg_share, 3),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/{district_id}/comments", response_model=list[CommentOut])
@@ -32,16 +42,18 @@ def district_comments(
     period: Period = Depends(get_period),
     sentiment: str | None = Query(None, description="negative | neutral | positive"),
     limit: int = Query(50, ge=1, le=200),
-    exclude_users: str | None = Query(
-        None, description="Через запятую: user_id,user_id,...",
-    ),
+    offset: int = Query(0, ge=0, description="Для пагинации 'показать ещё'"),
+    exclude_users: str | None = Query(None, description="user_id,user_id,..."),
+    groups: str | None = Query(None, description="group_id,group_id,..."),
 ):
     excluded: set[int] = set()
     if exclude_users:
-        for part in exclude_users.split(","):
-            part = part.strip()
-            if part.isdigit():
-                excluded.add(int(part))
+        excluded = {int(p) for p in exclude_users.split(",") if p.strip().isdigit()}
+
+    group_ids: set[int] | None = None
+    if groups:
+        gs = {int(p) for p in groups.split(",") if p.strip().isdigit()}
+        group_ids = gs or None
 
     did = _district_id_or_none(district_id)
     if did is None:
@@ -52,8 +64,10 @@ def district_comments(
         start_dt=period.start_dt,
         end_dt=period.end_dt,
         limit=limit,
+        offset=offset,
         sentiment=sentiment,
         excluded_user_ids=excluded,
+        group_ids=group_ids,
     )
     return [CommentOut(**r.__dict__) for r in rows]
 

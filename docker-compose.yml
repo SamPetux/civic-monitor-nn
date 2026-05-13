@@ -75,7 +75,6 @@ services:
   # Next.js фронтенд — добавляется в Блоке 4
   # ----------------------------------------------------------
   frontend:
-    profiles: [frontend]
     build:
       context: ./frontend
       dockerfile: Dockerfile

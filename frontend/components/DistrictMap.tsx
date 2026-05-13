@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import type { Map, MapMouseEvent, GeoJSONSource } from 'maplibre-gl'
+import type { MapMouseEvent, GeoJSONSource } from 'maplibre-gl'
+import type { Map as MapLibre } from 'maplibre-gl'
 import type { DistrictMetrics } from '@/lib/types'
 import type { FeatureCollection } from 'geojson'
 
@@ -23,7 +24,7 @@ interface Props {
 
 export default function DistrictMap({ geojson, metrics, selectedId, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<Map | null>(null)
+  const mapRef = useRef<MapLibre | null>(null)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return

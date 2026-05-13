@@ -77,11 +77,27 @@ class DistrictMetrics:
     negativity_score: float       # 0..1 — итоговый "градус" района
     neg_share: float              # абсолютная доля негатива (для подписей)
     delta_vs_city: float          # (district_neg - city_neg), +/-
+    # Новые поля для UI:
+    unique_authors: int = 0       # уникальные авторы за период
+    prev_total_posts: int = 0     # объём за предыдущий равный период (для дельты)
+    prev_unique_authors: int = 0
+    prev_neg_share: float = 0.0
 
     @property
     def neg_share_legacy(self) -> float:
-        # сохраняем для обратной совместимости со старым UI
         return self.negative / max(self.total_posts, 1)
+
+    @property
+    def delta_activity(self) -> float:
+        """Изменение активности vs предыдущий период, доля (-1..+inf)."""
+        if self.prev_total_posts == 0:
+            return 0.0
+        return (self.total_posts - self.prev_total_posts) / self.prev_total_posts
+
+    @property
+    def delta_neg_share(self) -> float:
+        """Изменение доли негатива vs предыдущий период, в п.п."""
+        return self.neg_share - self.prev_neg_share
 
 
 @dataclass
@@ -218,126 +234,158 @@ def get_district_metrics(
     end_dt: datetime | None = None,
 ) -> list[DistrictMetrics]:
     """
-    Сводка по каждому району с новой метрикой "отклонение от среднего":
-      city_neg_share  = средняя доля негатива по городу за период
-      sigma           = std долей негатива по 8 районам
-      district_z      = (district_neg_share - city_neg_share) / sigma
-      score           = sigmoid(district_z)  ∈ (0, 1)
-
-    Так центр шкалы (0.5) — типичный для города уровень негатива;
-    >0.5 — район хуже среднего, <0.5 — лучше.
-    Маленькие районы с малым объёмом «сглаживаются» к 0.5 за счёт
-    Лапласова сглаживания (см. _smoothed_neg_share).
+    Сводка по каждому району. См. DistrictMetrics для описания полей.
+    Дополнительно считает уникальных авторов и метрики предыдущего равного
+    периода (для дельт). Если start_dt/end_dt не заданы — prev-блок остаётся нулевым.
     """
-    with get_session() as s:
-        p_conds = _period_filter(Post.date, start_dt, end_dt) + [
-            Post.district_id.is_not(None)
-        ]
-        p_rows_raw = s.execute(
-            select(Post.district_id, *_sentiment_aggs(Post.sentiment))
-            .where(*p_conds).group_by(Post.district_id)
-        ).all()
-        p_rows = {r[0]: r[1:] for r in p_rows_raw}
+    # Длина периода для prev-расчёта
+    prev_start = prev_end = None
+    if start_dt and end_dt:
+        delta = end_dt - start_dt
+        prev_end = start_dt
+        prev_start = start_dt - delta
 
-        c_conds = _period_filter(Comment.date, start_dt, end_dt) + [
-            Comment.district_id.is_not(None)
-        ]
-        c_rows_raw = s.execute(
-            select(Comment.district_id, *_sentiment_aggs(Comment.sentiment))
-            .where(*c_conds).group_by(Comment.district_id)
-        ).all()
-        c_rows = {r[0]: r[1:] for r in c_rows_raw}
+    def _aggregate(s_start, s_end):
+        """Возвращает {district_id: (total, neg, neu, pos, authors)}."""
+        out: dict[str, dict] = {}
 
-    combined: dict[str, dict] = {}
-    city_total = 0
-    city_neg = 0
-    for d in DISTRICTS:
-        d_id = d["id"]
-        p = p_rows.get(d_id, (0, 0, 0, 0))
-        c = c_rows.get(d_id, (0, 0, 0, 0))
-        total = (p[0] or 0) + (c[0] or 0)
-        neg   = (p[1] or 0) + (c[1] or 0)
-        neu   = (p[2] or 0) + (c[2] or 0)
-        pos   = (p[3] or 0) + (c[3] or 0)
-        combined[d_id] = {"total": total, "neg": neg, "neu": neu, "pos": pos}
-        city_total += total
-        city_neg += neg
+        # Посты
+        conds_p = []
+        conds_p += _period_filter(Post.date, s_start, s_end)
+        conds_p.append(Post.district_id.is_not(None))
 
-    city_neg_share = city_neg / max(city_total, 1)
+        with get_session() as s:
+            p_rows = s.execute(
+                select(
+                    Post.district_id,
+                    func.count().label("total"),
+                    func.sum(case((Post.sentiment == "negative", 1), else_=0)).label("neg"),
+                    func.sum(case((Post.sentiment == "neutral",  1), else_=0)).label("neu"),
+                    func.sum(case((Post.sentiment == "positive", 1), else_=0)).label("pos"),
+                ).where(*conds_p).group_by(Post.district_id)
+            ).all()
 
-    # Лапласово сглаживание: добавляем по 5 виртуальных "средних" сообщений,
-    # чтобы районы с 3 коммами не давали 100% негатива случайно.
-    SMOOTH_N = 5
+            conds_c = []
+            conds_c += _period_filter(Comment.date, s_start, s_end)
+            conds_c.append(Comment.district_id.is_not(None))
+            c_rows = s.execute(
+                select(
+                    Comment.district_id,
+                    func.count().label("total"),
+                    func.sum(case((Comment.sentiment == "negative", 1), else_=0)).label("neg"),
+                    func.sum(case((Comment.sentiment == "neutral",  1), else_=0)).label("neu"),
+                    func.sum(case((Comment.sentiment == "positive", 1), else_=0)).label("pos"),
+                ).where(*conds_c).group_by(Comment.district_id)
+            ).all()
 
-    def smoothed_share(neg: int, total: int) -> float:
-        return (neg + SMOOTH_N * city_neg_share) / (total + SMOOTH_N)
+            # Уникальные авторы (по комментариям — основной сигнал активности)
+            a_rows = s.execute(
+                select(
+                    Comment.district_id,
+                    func.count(func.distinct(Comment.from_id)).label("authors"),
+                ).where(*conds_c).group_by(Comment.district_id)
+            ).all()
 
-    shares = {
-        d_id: smoothed_share(m["neg"], m["total"])
-        for d_id, m in combined.items()
-    }
+        for did, total, neg, neu, pos in p_rows:
+            d = out.setdefault(did, {"total": 0, "neg": 0, "neu": 0, "pos": 0, "authors": 0})
+            d["total"] += int(total or 0); d["neg"] += int(neg or 0)
+            d["neu"]   += int(neu or 0);   d["pos"] += int(pos or 0)
+        for did, total, neg, neu, pos in c_rows:
+            d = out.setdefault(did, {"total": 0, "neg": 0, "neu": 0, "pos": 0, "authors": 0})
+            d["total"] += int(total or 0); d["neg"] += int(neg or 0)
+            d["neu"]   += int(neu or 0);   d["pos"] += int(pos or 0)
+        for did, authors in a_rows:
+            d = out.setdefault(did, {"total": 0, "neg": 0, "neu": 0, "pos": 0, "authors": 0})
+            d["authors"] = int(authors or 0)
 
-    # σ среди районов
-    vals = list(shares.values())
-    mean = sum(vals) / len(vals)
-    variance = sum((v - mean) ** 2 for v in vals) / len(vals)
-    sigma = math.sqrt(variance)
-    if sigma < 0.005:
-        # все районы примерно одинаковые → не растягиваем
-        sigma = 0.005
+        return out
 
-    out: list[DistrictMetrics] = []
-    for d in DISTRICTS:
-        m = combined[d["id"]]
-        s_share = shares[d["id"]]
-        z = (s_share - mean) / sigma
-        # сигмоида с нормировкой: z=0 → 0.5, z=±1.5 → ~0.18/0.82
-        score = 1.0 / (1.0 + math.exp(-z))
-        out.append(DistrictMetrics(
-            district_id=d["id"],
-            name_ru=d["name_ru"],
-            total_posts=m["total"],
-            negative=m["neg"], neutral=m["neu"], positive=m["pos"],
-            activity=m["total"],
+    cur = _aggregate(start_dt, end_dt)
+    prev = _aggregate(prev_start, prev_end) if prev_start else {}
+
+    # Считаем z-score окраски (как раньше)
+    neg_shares = []
+    for did in DISTRICT_BY_ID:
+        d = cur.get(did, {"total": 0, "neg": 0})
+        if d["total"] >= 5:
+            neg_shares.append(d["neg"] / max(d["total"], 1))
+    if neg_shares:
+        city_neg = sum(neg_shares) / len(neg_shares)
+        var = sum((x - city_neg) ** 2 for x in neg_shares) / len(neg_shares)
+        sigma = math.sqrt(var) or 1.0
+    else:
+        city_neg, sigma = 0.0, 1.0
+
+    result: list[DistrictMetrics] = []
+    for did, info in DISTRICT_BY_ID.items():
+        d = cur.get(did, {"total": 0, "neg": 0, "neu": 0, "pos": 0, "authors": 0})
+        p = prev.get(did, {"total": 0, "neg": 0, "authors": 0})
+        total = d["total"]
+        neg_share = d["neg"] / max(total, 1)
+        # Сглаживание малых выборок к city_neg (Лаплас)
+        smoothed = (d["neg"] + city_neg * 10) / max(total + 10, 1)
+        z = (smoothed - city_neg) / sigma if total else 0.0
+        score = 1 / (1 + math.exp(-z))
+
+        prev_total = p["total"]
+        prev_neg_share = (p["neg"] / prev_total) if prev_total else 0.0
+
+        result.append(DistrictMetrics(
+            district_id=did,
+            name_ru=info["name_ru"],
+            total_posts=total,
+            negative=d["neg"],
+            neutral=d["neu"],
+            positive=d["pos"],
+            activity=total,
             negativity_score=round(score, 3),
-            neg_share=round(s_share, 3),
-            delta_vs_city=round(s_share - city_neg_share, 3),
+            neg_share=round(neg_share, 3),
+            delta_vs_city=round(neg_share - city_neg, 3),
+            unique_authors=d["authors"],
+            prev_total_posts=prev_total,
+            prev_unique_authors=p["authors"],
+            prev_neg_share=round(prev_neg_share, 3),
         ))
-    return out
+    return result
 
 
 # ----------------------------------------------------------------------
-# Комментарии в районе — теперь с ссылками
+# Комментарии в районе — теперь со ссылками
 # ----------------------------------------------------------------------
 def get_recent_comments(
     district_id: str,
     start_dt: datetime | None = None,
     end_dt: datetime | None = None,
     limit: int = 50,
+    offset: int = 0,                          # NEW: для пагинации
     sentiment: str | None = None,
     excluded_user_ids: set[int] | None = None,
+    group_ids: set[int] | None = None,        # NEW: фильтр по группам (Group.id)
 ) -> list[CommentRow]:
     excluded_user_ids = excluded_user_ids or set()
     conds = [Comment.district_id == district_id]
     conds += _period_filter(Comment.date, start_dt, end_dt)
     if sentiment:
         conds.append(Comment.sentiment == sentiment)
+    if group_ids:
+        conds.append(Group.id.in_(group_ids))
 
     with get_session() as s:
         rows = s.execute(
             select(
                 Comment.from_id,
-                Comment.vk_comment_id, Comment.text, Comment.sentiment,
+                Comment.vk_id, Comment.text, Comment.sentiment,
                 Comment.sentiment_score, Comment.date, Comment.district_id,
                 User.first_name, User.last_name,
                 Group.name, Group.screen_name, Group.vk_id.label("group_vk_id"),
-                Post.vk_post_id.label("post_vk_id"),
+                Post.vk_id.label("post_vk_id"),
             )
             .join(Post, Post.id == Comment.post_id)
             .join(Group, Group.id == Post.group_id)
-            .join(User, User.vk_user_id == Comment.from_id, isouter=True)
+            .join(User, User.vk_id == Comment.from_id, isouter=True)
             .where(*conds)
             .order_by(Comment.date.desc())
+            .offset(offset)
             .limit(limit * 2)
         ).all()
 
@@ -361,7 +409,7 @@ def get_recent_comments(
             score=float(r.sentiment_score or 0),
             created_at=r.date,
             district_id=r.district_id,
-            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_comment_id),
+            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_id),
         ))
         if len(out) >= limit:
             break
@@ -614,3 +662,34 @@ def get_topic_day_heatmap(
     for d, tid, n in rows:
         matrix[topic_idx[int(tid)]][day_idx[str(d)]] = int(n)
     return all_days, topic_labels, matrix
+
+
+# ----------------------------------------------------------------------
+# Функция для списка групп
+# ----------------------------------------------------------------------
+@dataclass
+class GroupRow:
+    id: int
+    name: str
+    screen_name: str
+    district_id: str | None
+    is_citywide: bool
+
+
+def get_groups(district_id: str | None = None) -> list[GroupRow]:
+    """Список всех VK-групп, опционально фильтр по району."""
+    with get_session() as s:
+        q = select(Group.id, Group.name, Group.screen_name,
+                   Group.district_id, Group.is_local)
+        if district_id:
+            q = q.where(Group.district_id == district_id)
+        rows = s.execute(q.order_by(Group.name)).all()
+    return [
+        GroupRow(
+            id=int(r.id),
+            name=r.name or r.screen_name or "—",
+            screen_name=r.screen_name or "",
+            district_id=r.district_id,
+            is_citywide=not bool(r.is_local),  # is_local=False → общегородская
+        ) for r in rows
+    ]

@@ -1,24 +1,19 @@
-"""Справочные эндпоинты: период данных в БД и список районов."""
+"""Справочные эндпоинты: период данных, список районов, список групп."""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from modules import data_repo
 from modules.districts import DISTRICTS
 
-from ..schemas import DataPeriodOut, DistrictRefOut
+from ..schemas import DataPeriodOut, DistrictRefOut, GroupOut
 
 
 router = APIRouter(prefix="/api/meta", tags=["meta"])
 
 
-@router.get("/period", response_model=DataPeriodOut, summary="Период данных в БД")
+@router.get("/period", response_model=DataPeriodOut)
 def data_period() -> DataPeriodOut:
-    """
-    Возвращает min и max дату из таблиц posts/comments плюс флаг пустоты БД.
-    Фронт использует это, чтобы инициализировать пикер периода (по умолчанию
-    — последние 7 дней, но не ранее start и не позже end).
-    """
     period = data_repo.get_data_period()
     is_empty = data_repo.is_db_empty()
     if period is None:
@@ -27,7 +22,14 @@ def data_period() -> DataPeriodOut:
     return DataPeriodOut(start=start, end=end, is_db_empty=is_empty)
 
 
-@router.get("/districts", response_model=list[DistrictRefOut], summary="Справочник районов")
+@router.get("/districts", response_model=list[DistrictRefOut])
 def districts_ref() -> list[DistrictRefOut]:
-    """Каноничный порядок 8 районов НН — используется для меню и легенды."""
     return [DistrictRefOut(**d) for d in DISTRICTS]
+
+
+@router.get("/groups", response_model=list[GroupOut])
+def groups_list(
+    district_id: str | None = Query(None, description="Фильтр по району"),
+) -> list[GroupOut]:
+    rows = data_repo.get_groups(district_id=district_id)
+    return [GroupOut(**r.__dict__) for r in rows]

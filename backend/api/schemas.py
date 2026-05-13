@@ -42,8 +42,15 @@ class DistrictMetricsOut(BaseModel):
     positive: int
     activity: int
     negativity_score: float = Field(..., description="0..1, sigmoid(z)")
-    neg_share: float = Field(..., description="абсолютная доля негатива")
-    delta_vs_city: float = Field(..., description="отклонение от среднего по городу")
+    neg_share: float
+    delta_vs_city: float
+    # Новые:
+    unique_authors: int = 0
+    prev_total_posts: int = 0
+    prev_unique_authors: int = 0
+    prev_neg_share: float = 0.0
+    delta_activity: float = 0.0     # (cur-prev)/prev
+    delta_neg_share: float = 0.0    # cur_neg_share - prev_neg_share, в долях
 
 
 class CommentOut(BaseModel):
@@ -97,3 +104,13 @@ class TopUserOut(BaseModel):
     avg_sentiment: float
     districts: list[str]
     suspected_bot: bool
+
+
+# ---- groups ---------------------------------------------------------------
+
+class GroupOut(BaseModel):
+    id: int
+    name: str
+    screen_name: str
+    district_id: str | None
+    is_citywide: bool
