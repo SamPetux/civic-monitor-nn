@@ -151,15 +151,15 @@ def _save_bursts(session, bursts: Iterable[BurstCandidate]) -> int:
     if not rows:
         return 0
     payload = [{
-        "topic_id":         b.topic_id,
-        "district_id":      b.district_id,
-        "date":             datetime.combine(b.day, datetime.min.time()),
-        "volume":           int(b.volume),
-        "baseline_mean":    float(b.baseline_mean),
-        "baseline_std":     float(b.baseline_std),
-        "z_score":          float(b.z_score),
-        "intensity":        b.intensity,
-        "neg_share":        float(b.neg_share) if b.neg_share is not None else None,
+        "topic_id":      b.topic_id,
+        "district_id":   b.district_id,
+        "date":          datetime.combine(b.day, datetime.min.time()),
+        "volume":        b.volume,
+        "baseline_mean": b.baseline_mean,
+        "baseline_std":  b.baseline_std,
+        "z_score":       b.z_score,
+        "intensity":     b.intensity,
+        "neg_share":     b.neg_share,
     } for b in rows]
 
     stmt = _upsert(Burst).values(payload)
