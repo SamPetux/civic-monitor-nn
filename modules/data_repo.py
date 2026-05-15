@@ -374,15 +374,15 @@ def get_recent_comments(
         rows = s.execute(
             select(
                 Comment.from_id,
-                Comment.vk_id, Comment.text, Comment.sentiment,
+                Comment.vk_comment_id, Comment.text, Comment.sentiment,
                 Comment.sentiment_score, Comment.date, Comment.district_id,
                 User.first_name, User.last_name,
                 Group.name, Group.screen_name, Group.vk_id.label("group_vk_id"),
-                Post.vk_id.label("post_vk_id"),
+                Post.vk_post_id.label("post_vk_id"),
             )
             .join(Post, Post.id == Comment.post_id)
             .join(Group, Group.id == Post.group_id)
-            .join(User, User.vk_id == Comment.from_id, isouter=True)
+            .join(User, User.vk_user_id == Comment.from_id, isouter=True)
             .where(*conds)
             .order_by(Comment.date.desc())
             .offset(offset)
@@ -409,7 +409,7 @@ def get_recent_comments(
             score=float(r.sentiment_score or 0),
             created_at=r.date,
             district_id=r.district_id,
-            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_id),
+            comment_url=_vk_comment_url(r.group_vk_id, r.post_vk_id, r.vk_comment_id),
         ))
         if len(out) >= limit:
             break
