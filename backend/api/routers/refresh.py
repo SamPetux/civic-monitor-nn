@@ -14,6 +14,7 @@ class RefreshStartRequest(BaseModel):
     hours: int | None = None
     days: int | None = None
     max_posts: int = 50
+    skip_sentiment: bool = True   # NEW
 
 
 class RefreshStatusOut(BaseModel):
@@ -24,7 +25,7 @@ class RefreshStatusOut(BaseModel):
     log_tail: str | None
 
 
-@router.post("/start", summary="Запустить фоновое обновление данных")
+@router.post("/start")
 def refresh_start(req: RefreshStartRequest):
     status = get_status()
     if status.is_running:
@@ -33,6 +34,7 @@ def refresh_start(req: RefreshStartRequest):
         hours=req.hours,
         days=req.days,
         max_posts=req.max_posts,
+        skip_sentiment=req.skip_sentiment,
     )
     if not ok:
         raise HTTPException(500, detail=msg)

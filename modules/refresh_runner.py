@@ -144,6 +144,7 @@ def start_refresh(
     hours: int | None = None,
     max_posts: int = 50,
     skip_topics: bool = True,
+    skip_sentiment: bool = True,   # NEW
     skip_bursts: bool = False,
 ) -> tuple[bool, str]:
     """
@@ -189,9 +190,10 @@ def start_refresh(
     cmd_parts = [
         f"{shlex.quote(py)} parse.py {parse_window} --max-posts {max_posts}",
         f"{shlex.quote(py)} parse.py --enrich-users",
-        f"{shlex.quote(py)} analyze_sentiment.py",
-        f"{shlex.quote(py)} geocode_posts.py",
     ]
+    if not skip_sentiment:
+        cmd_parts.append(f"{shlex.quote(py)} analyze_sentiment.py")
+    cmd_parts.append(f"{shlex.quote(py)} geocode_posts.py")
     if not skip_topics:
         cmd_parts.append(f"{shlex.quote(py)} analyze_topics.py --reset")
     if not skip_bursts:
