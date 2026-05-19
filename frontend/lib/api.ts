@@ -34,10 +34,10 @@ export const api = {
   topUsers:  (start?: string|null, end?: string|null, limit = 30) =>
     get<TopUser[]>(`/api/users/top${qs({ start, end, limit })}`),
   refreshStatus: () => get<RefreshStatus>('/api/refresh/status'),
-  refreshStart:  (hours?: number, days?: number, max_posts = 50) =>
+  refreshStart: (hours?: number, days?: number, max_posts = 50, skip_bursts = false) =>
     fetch('/api/refresh/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hours, days, max_posts }),
+      body: JSON.stringify({ hours, days, max_posts, skip_bursts }),
     }).then(r => r.json()),
   refreshCancel: () => fetch('/api/refresh/cancel', { method: 'POST' }).then(r => r.json()),
   downloadPdf: (district_id: string|null, start: string, end: string) =>
