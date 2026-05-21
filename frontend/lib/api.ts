@@ -23,8 +23,10 @@ export const api = {
   geoJson:   () => get<FeatureCollection>('/api/geo/districts'),
   metrics:   (start?: string|null, end?: string|null) =>
     get<DistrictMetrics[]>(`/api/districts/metrics${qs({ start, end })}`),
-  comments:  (id: string, start?: string|null, end?: string|null, sentiment?: string|null, limit = 50) =>
-    get<Comment[]>(`/api/districts/${id}/comments${qs({ start, end, sentiment, limit })}`),
+  comments: (id: string, start?: string|null, end?: string|null, sentiment?: string|null, limit = 30, offset = 0, groups?: string) =>
+    get<Comment[]>(`/api/districts/${id}/comments${qs({ start, end, sentiment, limit, offset, groups })}`),
+  groups: (district_id?: string) =>
+    get<GroupOut[]>(`/api/meta/groups${qs({ district_id })}`),
   sentiment: (id: string, start?: string|null, end?: string|null, bucket = 'day') =>
     get<SentimentBucket[]>(`/api/districts/${id}/sentiment${qs({ start, end, bucket })}`),
   topics:    (id: string, start?: string|null, end?: string|null, limit = 5) =>

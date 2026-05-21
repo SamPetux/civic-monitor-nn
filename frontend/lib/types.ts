@@ -78,3 +78,11 @@ export interface RefreshStatus {
   last_result: string | null
   log_tail: string | null
 }
+
+export interface GroupOut {
+  id: number
+  name: string
+  screen_name: string
+  district_id: string | null
+  is_citywide: boolean
+}

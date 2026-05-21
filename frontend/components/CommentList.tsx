@@ -26,7 +26,7 @@ export default function CommentList({ comments }: { comments: Comment[] }) {
                className="text-xs text-gray-400 hover:underline truncate max-w-[120px]">
               {c.group}
             </a>
-            <span className="ml-auto text-xs text-gray-400">{c.created_at.slice(0, 10)}</span>
+            <span className="ml-auto text-xs text-gray-400">{c.created_at.slice(0, 16).replace('T', ' ')}</span>
           </div>
           <p className="text-sm text-gray-700 leading-snug line-clamp-3">{c.text}</p>
           <div className="flex items-center gap-2 mt-1">

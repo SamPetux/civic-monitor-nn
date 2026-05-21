@@ -9,7 +9,6 @@ import PeriodPicker from './PeriodPicker'
 import DistrictPanel from './DistrictPanel'
 import { format } from 'date-fns'
 
-// MapLibre нельзя на сервере — ssr: false
 const DistrictMap = dynamic(() => import('./DistrictMap'), {
   ssr: false,
   loading: () => (
@@ -35,24 +34,14 @@ export default function Dashboard() {
     log_tail?: string | null
   }>({ is_running: false, last_result: null })
 
-  // Refresh panel state
   const [refreshOpen, setRefreshOpen] = useState(false)
   const [refreshHours, setRefreshHours] = useState(24)
   const [refreshUnit, setRefreshUnit] = useState<'hours' | 'days'>('hours')
   const [refreshMax, setRefreshMax] = useState(50)
   const [skipBursts, setSkipBursts] = useState(false)
 
-  // Загрузка GeoJSON один раз
-  useEffect(() => {
-    api.geoJson().then(setGeojson)
-  }, [])
-
-  // Загрузка метрик при изменении периода
-  useEffect(() => {
-    api.metrics(start, end).then(setMetrics)
-  }, [start, end])
-
-  // Опрос статуса обновления каждые 10 сек
+  useEffect(() => { api.geoJson().then(setGeojson) }, [])
+  useEffect(() => { api.metrics(start, end).then(setMetrics) }, [start, end])
   useEffect(() => {
     const poll = () => api.refreshStatus().then(s => setRefreshStatus(s))
     poll()
@@ -74,27 +63,19 @@ export default function Dashboard() {
     <div className="h-screen flex flex-col overflow-hidden">
       <Navbar active="map" />
 
-      {/* Панель фильтров */}
       <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-4 flex-wrap">
         <PeriodPicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} />
 
         <div className="ml-auto flex items-center gap-2 relative">
           {refreshStatus.last_result === 'done' && (
-            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-lg">
-              ✓ Обновлено
-            </span>
+            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-lg">✓ Обновлено</span>
           )}
           {refreshStatus.last_result === 'failed' && (
-            <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-lg">
-              ✗ Ошибка обновления
-            </span>
+            <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-lg">✗ Ошибка обновления</span>
           )}
 
           {refreshStatus.is_running ? (
-            <button
-              disabled
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed"
-            >
+            <button disabled className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed">
               ⟳ Обновляется…
             </button>
           ) : (
@@ -113,7 +94,6 @@ export default function Dashboard() {
                     Параметры обновления
                   </p>
 
-                  {/* Единица периода */}
                   <div className="flex gap-1 mb-3">
                     {(['hours', 'days'] as const).map(u => (
                       <button
@@ -130,7 +110,6 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                  {/* Слайдер периода */}
                   <div className="mb-3">
                     <label className="text-xs text-gray-500 flex justify-between mb-1">
                       <span>Парсить за последние</span>
@@ -139,8 +118,7 @@ export default function Dashboard() {
                       </span>
                     </label>
                     <input
-                      type="range"
-                      min={1}
+                      type="range" min={1}
                       max={refreshUnit === 'hours' ? 72 : 14}
                       value={refreshHours}
                       onChange={e => setRefreshHours(Number(e.target.value))}
@@ -152,34 +130,27 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* Лимит постов */}
                   <div className="mb-3">
                     <label className="text-xs text-gray-500 flex justify-between mb-1">
                       <span>Постов на группу (макс)</span>
                       <span className="font-medium text-gray-700">{refreshMax}</span>
                     </label>
                     <input
-                      type="range"
-                      min={10}
-                      max={200}
-                      step={10}
+                      type="range" min={10} max={200} step={10}
                       value={refreshMax}
                       onChange={e => setRefreshMax(Number(e.target.value))}
                       className="w-full accent-indigo-600"
                     />
                     <div className="flex justify-between text-xs text-gray-400 mt-0.5">
-                      <span>10</span>
-                      <span>200</span>
+                      <span>10</span><span>200</span>
                     </div>
                   </div>
 
-                  {/* Что пересчитывать */}
                   <div className="mb-4">
                     <p className="text-xs text-gray-500 mb-2">Пересчитать после парсинга:</p>
                     <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
                       <input
-                        type="checkbox"
-                        checked={!skipBursts}
+                        type="checkbox" checked={!skipBursts}
                         onChange={e => setSkipBursts(!e.target.checked)}
                         className="accent-indigo-600"
                       />
@@ -187,7 +158,6 @@ export default function Dashboard() {
                     </label>
                   </div>
 
-                  {/* Кнопка запуска */}
                   <button
                     onClick={handleRefresh}
                     className="w-full py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors"
@@ -195,7 +165,6 @@ export default function Dashboard() {
                     ▶ Запустить обновление
                   </button>
 
-                  {/* Лог последнего запуска */}
                   {refreshStatus.log_tail && (
                     <details className="mt-3">
                       <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
@@ -213,9 +182,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Основной контент: карта + панель */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Карта */}
         <div className="flex-1 relative">
           {geojson ? (
             <DistrictMap
@@ -230,27 +197,22 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Легенда */}
           <div className="absolute bottom-6 left-4 bg-white/90 backdrop-blur rounded-xl shadow-sm border border-gray-100 p-3">
             <p className="text-xs text-gray-500 mb-1.5 font-medium">Негативность</p>
             <div className="flex items-center gap-1.5">
               <div
                 className="w-24 h-2.5 rounded-full"
-                style={{
-                  background:
-                    'linear-gradient(to right, #2ecc71, #a3d977, #f1c40f, #e67e22, #e74c3c)',
-                }}
+                style={{ background: 'linear-gradient(to right, #2ecc71, #a3d977, #f1c40f, #e67e22, #e74c3c)' }}
               />
             </div>
             <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>низкая</span>
-              <span>высокая</span>
+              <span>низкая</span><span>высокая</span>
             </div>
           </div>
         </div>
 
-        {/* Панель района */}
-        <div className="w-96 border-l border-gray-100 bg-white overflow-hidden flex flex-col">
+        {/* A4: правая панель шире — 520px */}
+        <div className="w-[520px] border-l border-gray-100 bg-white overflow-hidden flex flex-col">
           <DistrictPanel
             districtId={selectedId ?? 'avtozavodsky'}
             metrics={selectedMetrics}
