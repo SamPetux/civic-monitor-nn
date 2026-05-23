@@ -86,3 +86,23 @@ export interface GroupOut {
   district_id: string | null
   is_citywide: boolean
 }
+
+export interface DistrictMetrics {
+  district_id: string
+  name_ru: string
+  total_posts: number
+  negative: number
+  neutral: number
+  positive: number
+  activity: number
+  negativity_score: number
+  neg_share: number
+  delta_vs_city: number
+  // Новые поля:
+  unique_authors: number
+  prev_total_posts: number
+  prev_unique_authors: number
+  prev_neg_share: number
+  delta_activity: number
+  delta_neg_share: number
+}

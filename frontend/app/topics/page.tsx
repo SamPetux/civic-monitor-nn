@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import type { Topic, Burst } from '@/lib/types'
 import Navbar from '@/components/Navbar'
 import PeriodPicker from '@/components/PeriodPicker'
-import { format, subDays } from 'date-fns'
+import { usePeriod } from '@/lib/usePeriod'
 
 const DISTRICTS = [
   { id: '_city', name: 'Весь город' },
@@ -24,10 +25,10 @@ const INTENSITY_COLOR: Record<string, string> = {
   low: 'bg-gray-100 text-gray-600',
 }
 
-export default function TopicsPage() {
-  const [start, setStart] = useState(() => format(subDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss"))
-  const [end, setEnd]     = useState(() => format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"))
-  const [districtId, setDistrictId] = useState('_city')
+function TopicsContent() {
+  const { start, end, setPeriod } = usePeriod()
+  const params = useSearchParams()
+  const [districtId, setDistrictId] = useState(params.get('district') ?? '_city')
   const [topics, setTopics] = useState<Topic[]>([])
   const [bursts, setBursts] = useState<Burst[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,9 +46,8 @@ export default function TopicsPage() {
     <div className="min-h-screen flex flex-col">
       <Navbar active="topics" />
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
-        {/* Фильтры */}
         <div className="flex flex-wrap gap-4 mb-6 items-end">
-          <PeriodPicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} />
+          <PeriodPicker start={start} end={end} onChange={setPeriod} />
           <div>
             <label className="block text-xs text-gray-500 mb-1">Район</label>
             <select
@@ -72,7 +72,9 @@ export default function TopicsPage() {
                   <div key={t.topic_id} className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-sm text-gray-800 truncate">{t.label || `Тема ${t.topic_id}`}</span>
+                        <span className="font-medium text-sm text-gray-800 truncate">
+                          {t.label || `Тема ${t.topic_id}`}
+                        </span>
                         <span className="text-xs text-gray-400">{t.count} сообщ.</span>
                       </div>
                       <p className="text-xs text-gray-400 truncate">{t.keywords}</p>
@@ -81,7 +83,6 @@ export default function TopicsPage() {
                       <span className={`text-sm font-semibold ${t.neg_share > 0.3 ? 'text-red-500' : 'text-gray-500'}`}>
                         {(t.neg_share * 100).toFixed(0)}% neg
                       </span>
-                      {/* bar */}
                       <div className="w-24 h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
                         <div className="h-full bg-red-400 rounded-full" style={{ width: `${t.neg_share * 100}%` }} />
                       </div>
@@ -106,10 +107,14 @@ export default function TopicsPage() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">{b.topic_label}</p>
-                      <p className="text-xs text-gray-400">{b.date.slice(0, 10)} · z={b.z_score.toFixed(1)} · {b.volume} сообщ.</p>
+                      <p className="text-xs text-gray-400">
+                        {b.date.slice(0, 10)} · z={b.z_score.toFixed(1)} · {b.volume} сообщ.
+                      </p>
                     </div>
                     {b.neg_share != null && (
-                      <span className="text-xs text-red-400 shrink-0">{(b.neg_share * 100).toFixed(0)}%↑</span>
+                      <span className="text-xs text-red-400 shrink-0">
+                        {(b.neg_share * 100).toFixed(0)}%↑
+                      </span>
                     )}
                   </div>
                 ))}
@@ -119,5 +124,13 @@ export default function TopicsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function TopicsPage() {
+  return (
+    <Suspense>
+      <TopicsContent />
+    </Suspense>
   )
 }

@@ -8,6 +8,7 @@ import Navbar from './Navbar'
 import PeriodPicker from './PeriodPicker'
 import DistrictPanel from './DistrictPanel'
 import { format } from 'date-fns'
+import { usePeriod } from '@/lib/usePeriod'
 
 const DistrictMap = dynamic(() => import('./DistrictMap'), {
   ssr: false,
@@ -19,12 +20,7 @@ const DistrictMap = dynamic(() => import('./DistrictMap'), {
 })
 
 export default function Dashboard() {
-  const [start, setStart] = useState(() => {
-    const now = new Date()
-    const s = new Date(now.getTime() - 30 * 86400_000)
-    return format(s, "yyyy-MM-dd'T'HH:mm:ss")
-  })
-  const [end, setEnd] = useState(() => format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"))
+  const { start, end, setPeriod } = usePeriod()
   const [selectedId, setSelectedId] = useState<string | null>('avtozavodsky')
   const [metrics, setMetrics] = useState<DistrictMetrics[]>([])
   const [geojson, setGeojson] = useState<FeatureCollection | null>(null)
@@ -64,7 +60,7 @@ export default function Dashboard() {
       <Navbar active="map" />
 
       <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-4 flex-wrap">
-        <PeriodPicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} />
+        <PeriodPicker start={start} end={end} onChange={setPeriod} />
 
         <div className="ml-auto flex items-center gap-2 relative">
           {refreshStatus.last_result === 'done' && (

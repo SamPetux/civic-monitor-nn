@@ -59,7 +59,7 @@ export default function DistrictPanel({ districtId, metrics, start, end }: Props
   // Загрузка комментариев
   useEffect(() => {
     setLoadingC(true)
-    const groupIds = selectedGroups.size > 0 ? [...selectedGroups].join(',') : undefined
+    const groupIds = selectedGroups.size > 0 ? Array.from(selectedGroups).join(',') : undefined
     api.comments(districtId, start, end, sentiment || null, PAGE, commentOffset, groupIds)
       .then(rows => {
         if (commentOffset === 0) {

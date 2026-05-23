@@ -1,6 +1,6 @@
 import type {
   DataPeriod, DistrictMetrics, Comment,
-  SentimentBucket, Topic, Burst, TopUser, RefreshStatus
+  SentimentBucket, Topic, Burst, TopUser, RefreshStatus, GroupOut
 } from './types'
 import type { FeatureCollection } from 'geojson'
 
