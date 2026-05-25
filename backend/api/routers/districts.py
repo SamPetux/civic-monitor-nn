@@ -104,7 +104,7 @@ def district_topics(
 def district_bursts(
     district_id: str,
     period: Period = Depends(get_period),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=500),
 ):
     did = _district_id_or_none(district_id)
     rows = data_repo.get_bursts(

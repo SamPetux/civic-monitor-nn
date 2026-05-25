@@ -1,11 +1,11 @@
 import Link from 'next/link'
 
 const links = [
-  { href: '/',        label: 'Карта',   key: 'map' },
-  { href: '/topics',  label: 'Темы',    key: 'topics' },
-  { href: '/users',   label: 'Авторы',  key: 'users' },
+  { href: '/',           label: 'Карта',     key: 'map' },
+  { href: '/topics',     label: 'Темы',      key: 'topics' },
+  { href: '/users',      label: 'Авторы',    key: 'users' },
+  { href: '/analytics',  label: 'Аналитика', key: 'analytics' },  // ← добавь
 ]
-
 export default function Navbar({ active }: { active: string }) {
   return (
     <header className="bg-[#1e3a5f] text-white shadow-md">
