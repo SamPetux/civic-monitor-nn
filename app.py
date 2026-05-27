@@ -26,6 +26,17 @@ from modules.districts import (
 )
 from modules.visualization import build_district_map
 
+from datetime import timezone, timedelta
+MSK = timezone(timedelta(hours=3))
+
+def _to_msk(dt: datetime) -> datetime:
+    """Конвертировать UTC datetime в московское время."""
+    if dt is None:
+        return dt
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(MSK)
+
 GEOJSON_PATH = Path(__file__).parent / "data" / "districts.geojson"
 
 st.set_page_config(
@@ -514,7 +525,7 @@ with tab_map:
                 st.markdown(
                     f"<div class='metric-card'>"
                     f"<span class='{cls}'>{b.intensity.upper()}</span> "
-                    f"<b>{b.date.strftime('%d.%m')}</b> · "
+                    f"<b>{_to_msk(b.date).strftime('%d.%m')}</b> · "
                     f"vol={b.volume} · z={b.z_score:.1f} {neg_str}<br>"
                     f"<span class='small-caption'>{b.topic_label}</span>"
                     f"</div>",
@@ -617,7 +628,7 @@ with tab_map:
                 f"<div class='metric-card'>"
                 f"{author_html} "
                 f"<span class='small-caption'>· {group_html} · "
-                f"{c.created_at:%d.%m %H:%M}{link_html}</span><br>"
+                f"{_to_msk(c.created_at):%d.%m %H:%M}{link_html}</span><br>"
                 f"<span class='{tone_class}'>[{tone_label} · {c.score:.2f}]</span> "
                 f"{c.text}"
                 f"</div>",

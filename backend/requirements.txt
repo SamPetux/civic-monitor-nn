@@ -1,0 +1,27 @@
+# Web
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# БД
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+alembic>=1.13.0
+
+# PDF-отчёты
+reportlab>=4.0
+
+# Данные
+pandas>=2.0
+numpy>=1.26
+
+# Парсер VK (нужен для refresh pipeline)
+vk_api>=11.9
+tqdm>=4.66
+requests>=2.27
+
+# Геокодинг (нужен для geocode_posts.py)
+geopandas>=0.14
+shapely>=2.0
+scikit-learn>=1.3

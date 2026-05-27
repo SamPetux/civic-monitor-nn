@@ -32,6 +32,25 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 log = logging.getLogger(__name__)
 
+def _resolve_model_path(model_name: str) -> str:
+    """
+    Если модель лежит в HuggingFace hub-кэше (Docker/офлайн) —
+    возвращаем полный путь к snapshot. Иначе возвращаем имя модели
+    как есть (обычный локальный запуск с доступом в интернет).
+    """
+    import os
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = os.path.join(hf_home, "hub")
+    folder_name = "models--" + model_name.replace("/", "--")
+    snapshots_dir = os.path.join(hub_dir, folder_name, "snapshots")
+    if os.path.isdir(snapshots_dir):
+        snapshots = sorted(os.listdir(snapshots_dir))
+        if snapshots:
+            full_path = os.path.join(snapshots_dir, snapshots[-1])
+            log.info("Модель найдена в кэше: %s", full_path)
+            return full_path
+    return model_name
+
 DEFAULT_MODEL = "seara/rubert-tiny2-russian-sentiment"
 HEAVY_MODEL = "blanchefort/rubert-base-cased-sentiment"
 
@@ -82,8 +101,8 @@ class SentimentAnalyzer:
         if self._model is not None:
             return
         log.info("Загружаю модель '%s' на устройство %s", self.model_name, self.device)
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(_resolve_model_path(self.model_name))
+        self._model = AutoModelForSequenceClassification.from_pretrained(_resolve_model_path(self.model_name))
         self._model.eval()
         self._model.to(self.device)
 
