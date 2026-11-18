@@ -32,9 +32,13 @@ data/*.pdf
 # PyCharm
 .idea/
 
-# civic_monitor_dump.sql в git не нужен — это дамп БД
-echo "civic_monitor_dump.sql" >> .gitignore
-echo "0" >> .gitignore
+# Дампы БД, выгрузки с текстами, кэш геокодера, сгенерированные отчёты
+*.sql
+!fix_postgres_constraints.sql
+*.db
+data/benchmark_labels.csv
+cache/
+/*.pdf
 
 # Node.js
 frontend/node_modules/
